@@ -1,0 +1,9 @@
+# Tenant configs hold API tokens and passwords; only the sample is committed.
+tenants/*
+!tenants/tenant.example.toml
+
+# Per-tenant generated output (IdP metadata, certificate, Nile values)
+out/
+
+__pycache__/
+*.pyc

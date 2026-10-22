@@ -1,0 +1,124 @@
+# =============================================================================
+#  Nile Portal <-> authentik: parameters for ONE Nile Portal tenant (instance)
+# =============================================================================
+#
+#   cp tenants/tenant.example.toml tenants/<tenant-domain>.toml
+#   chmod 600 tenants/<tenant-domain>.toml        # holds secrets (skip on Windows)
+#
+# Everything the script needs lives in this one file: URLs, keys, group names, users.
+# Real tenant files (and the Nile metadata / SCIM key files next to them) are gitignored;
+# only this example is committed.
+#
+# Values below are filled in for "Nile Workshop 2" as an example. Lines marked SECRET hold
+# credentials. Lines marked LATER are filled in after a Nile Portal step (see README).
+
+# -----------------------------------------------------------------------------
+# authentik (the identity provider, shared by all tenants)
+# -----------------------------------------------------------------------------
+[authentik]
+url = "https://authentik.nile.global"
+
+# API token of an authentik superuser (Directory > Tokens and App passwords, intent "API").
+# SECRET. Set ONE of: token, token_file, or the AUTHENTIK_TOKEN environment variable.
+token = ""
+# token_file = "~/.authentik-token"
+
+# -----------------------------------------------------------------------------
+# The Nile Portal tenant
+# -----------------------------------------------------------------------------
+[tenant]
+# Email domain of this tenant's users. Unique per tenant. Must also be added and verified in
+# the Nile Portal (Account Management > Domains). The authentik app slug is derived from it
+# (dots -> underscores, e.g. nileworkshop-2_com).
+domain = "nileworkshop-2.com"
+
+# authentik group for this tenant's Portal administrators. Members can sign in to this Nile
+# Portal; the group name is sent in SAML "memberOf" and the Nile group rule
+# "Administrator <- pod-nile-workshop-2" makes them admins.
+access_group = "pod-nile-workshop-2"
+
+# Optional overrides (defaults shown):
+# slug            = "nileworkshop-2_com"
+# app_name        = "Nile Portal - nileworkshop-2.com"
+# launch_url      = ""      # tile URL on the authentik Application Dashboard
+# issuer_override = ""      # empty = authentik default (this tenant's metadata URL)
+
+# -----------------------------------------------------------------------------
+# SAML signing certificate (shared by all tenants on this authentik)
+# -----------------------------------------------------------------------------
+# Optional section. Created on first use if no keypair with this name exists. Do not use the
+# built-in "authentik Self-signed Certificate" (valid one year only).
+[signing]
+certificate   = "Nile SAML Signing"
+validity_days = 3650          # only used when the keypair is generated
+
+# -----------------------------------------------------------------------------
+# Nile Portal service-provider values                                     LATER
+# -----------------------------------------------------------------------------
+# Leave empty on the first run (authentik gets a placeholder ACS URL). After adding the
+# provider in the Nile Portal, click METADATA, save the XML next to this file, then EITHER:
+[nile_sp]
+metadata_file = ""            # e.g. "nile-idp-metadata-0oa....xml" (relative to this file)
+# OR paste the two values from that XML:
+entity_id = ""                # <EntityDescriptor entityID="https://www.okta.com/saml2/service-provider/sp...">
+acs_url   = ""                # <AssertionConsumerService Location="https://login.u1.nile-global.cloud/sso/saml2/0oa...">
+
+# -----------------------------------------------------------------------------
+# SCIM provisioning of network groups (optional)                          LATER
+# -----------------------------------------------------------------------------
+# authentik pushes these groups and their members to Nile, which uses them to grant network
+# access. Needs the Nile provider from the step above. Delete or comment out this whole
+# section to skip SCIM.
+#
+# Nile Portal > GLOBAL SETTINGS > Identity > <provider> > SCIM Configuration > ADD SCIM KEY
+# downloads scim_api_key-<n>.json ({"api_token": ..., "url": ...}). Save it next to this file.
+[scim]
+key_file = ""                 # SECRET file, e.g. "scim_api_key-1792710724952.json"
+url      = "https://u1.nile-global.cloud/api/v1/scim"   # default: key file url + /api/v1/scim
+# token  = ""                 # SECRET, alternative to key_file
+
+# Network groups for this tenant. Created in authentik, pushed to Nile with their members.
+# Adding a name here and re-running apply creates and pushes it; groups you remove here are
+# NOT deleted (delete them in authentik and they disappear from Nile too).
+groups = ["pod-nile-workshop-2-employee", "pod-nile-workshop-2-contractor"]
+
+# true  = authentik computes the sync but writes nothing to Nile; 'verify' shows what it
+#         would send. Start here.
+# false = live.
+dry_run = true
+
+# -----------------------------------------------------------------------------
+# Users (one [[users]] block each)
+# -----------------------------------------------------------------------------
+# Users are created if missing and updated if changed. Group memberships are only ever ADDED;
+# remove memberships or deactivate users in the authentik UI.
+#
+#   email       username, SAML NameID and SCIM userName. Should be in tenant.domain.
+#   first_name  required by Nile (Okta)
+#   last_name   required by Nile (Okta)
+#   mobile      optional
+#   password    SECRET, optional. Set when the user is created (or with --set-passwords).
+#               Leave empty to set it in the authentik UI (Directory > Users > Set password).
+#   admin       true  -> member of access_group: may sign in to the Nile Portal as Administrator
+#               false -> no Portal sign-in (default)
+#   groups      SCIM network groups for this user; each must be listed in [scim] groups
+
+# A Portal administrator who is also an employee on the network:
+[[users]]
+email      = "admin@nileworkshop-2.com"
+first_name = "Jane"
+last_name  = "Doe"
+mobile     = ""
+password   = ""
+admin      = true
+groups     = ["pod-nile-workshop-2-employee"]
+
+# A network-only contractor (provisioned to Nile by SCIM, cannot sign in to the Portal):
+[[users]]
+email      = "contractor1@nileworkshop-2.com"
+first_name = "Carl"
+last_name  = "Contractor"
+mobile     = ""
+password   = ""
+admin      = false
+groups     = ["pod-nile-workshop-2-contractor"]
