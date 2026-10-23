@@ -30,6 +30,7 @@ EMAIL_NAMEID_MANAGED = "goauthentik.io/providers/saml/email"
 SCIM_USER_MANAGED = "goauthentik.io/providers/scim/user"
 SCIM_GROUP_MANAGED = "goauthentik.io/providers/scim/group"
 NILE_SCIM_PATH = "/api/v1/scim"
+GROUP_FLAG = "hol_testbed_group"   # attribute stamped (as boolean true) on every predefined group
 MD_NS = {"md": "urn:oasis:names:tc:SAML:2.0:metadata"}
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -265,12 +266,27 @@ def ensure_mappings(api):
 
 
 def ensure_group(api, name):
+    # Predefined groups are flat (no parent) and carry hol_testbed_group = true (a JSON boolean).
     cur = find_one(api.list("core/groups/", name=name, include_users="false"), "name", name)
-    if cur:
+    if not cur:
+        log(f"  created  group {name}")
+        return api.write("POST", "core/groups/", {"name": name, "is_superuser": False,
+                                                  "attributes": {GROUP_FLAG: True}}, name)["pk"]
+    patch = {}
+    attrs = cur.get("attributes") or {}
+    if attrs.get(GROUP_FLAG) is not True:
+        patch["attributes"] = {**attrs, GROUP_FLAG: True}
+    # Newer authentik has a "parents" list; older ones a single "parent".
+    if cur.get("parents"):
+        patch["parents"] = []
+    if cur.get("parent"):
+        patch["parent"] = None
+    if patch:
+        api.write("PATCH", f"core/groups/{cur['pk']}/", patch, name)
+        log(f"  updated  group {name} ({', '.join(patch)})")
+    else:
         log(f"  ok       group {name}")
-        return cur["pk"]
-    log(f"  created  group {name}")
-    return api.write("POST", "core/groups/", {"name": name, "is_superuser": False}, name)["pk"]
+    return cur["pk"]
 
 
 def ensure_users(api, cfg, group_pks, set_passwords):
