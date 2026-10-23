@@ -85,7 +85,7 @@ groups = ["NileWorkshop2Employee", "NileWorkshop2Contractor"]
 # true  = authentik computes the sync but writes nothing to Nile; 'verify' shows what it
 #         would send. Start here.
 # false = live.
-dry_run = true
+dry_run = false
 
 # -----------------------------------------------------------------------------
 # Users (one [[users]] block each)
