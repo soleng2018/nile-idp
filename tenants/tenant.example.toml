@@ -34,8 +34,8 @@ domain = "nileworkshop-2.com"
 
 # authentik group for this tenant's Portal administrators. Members can sign in to this Nile
 # Portal; the group name is sent in SAML "memberOf" and the Nile group rule
-# "Administrator <- pod-nile-workshop-2" makes them admins.
-access_group = "pod-nile-workshop-2"
+# "Administrator <- NileWorkshop2Admin" makes them admins.
+access_group = "NileWorkshop2Admin"
 
 # Optional overrides (defaults shown):
 # slug            = "nileworkshop-2_com"
@@ -80,7 +80,7 @@ url      = "https://u1.nile-global.cloud/api/v1/scim"   # default: key file url 
 # Network groups for this tenant. Created in authentik, pushed to Nile with their members.
 # Adding a name here and re-running apply creates and pushes it; groups you remove here are
 # NOT deleted (delete them in authentik and they disappear from Nile too).
-groups = ["pod-nile-workshop-2-employee", "pod-nile-workshop-2-contractor"]
+groups = ["NileWorkshop2Employee", "NileWorkshop2Contractor"]
 
 # true  = authentik computes the sync but writes nothing to Nile; 'verify' shows what it
 #         would send. Start here.
@@ -111,7 +111,7 @@ last_name  = "Doe"
 mobile     = ""
 password   = ""
 admin      = true
-groups     = ["pod-nile-workshop-2-employee"]
+groups     = ["NileWorkshop2Employee"]
 
 # A network-only contractor (provisioned to Nile by SCIM, cannot sign in to the Portal):
 [[users]]
@@ -121,4 +121,4 @@ last_name  = "Contractor"
 mobile     = ""
 password   = ""
 admin      = false
-groups     = ["pod-nile-workshop-2-contractor"]
+groups     = ["NileWorkshop2Contractor"]

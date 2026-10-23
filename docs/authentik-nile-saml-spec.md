@@ -42,33 +42,40 @@ One authentik serves many Nile Portal tenants. Objects are either **shared** or 
 |---|---|---|
 | SAML property mappings (6) | shared | `Nile: firstName`, `Nile: lastName`, `Nile: mail`, `Nile: email`, `Nile: mobile`, `Nile: memberOf` |
 | Signing keypair | shared | `Nile SAML Signing` (RSA, 10 years) |
-| Group | per tenant | `<access_group>`, set per instance in the config (`tenant.access_group`), e.g. `pod-nile-workshop-1` |
+| Group | per tenant | `<access_group>`, set per instance in the config (`tenant.access_group`), e.g. `NileWorkshop1Admin` |
 | SAML provider | per tenant | `Provider for Nile Portal - <domain>` |
 | Application | per tenant | `Nile Portal - <domain>`, slug `<domain with . → _>` |
 | Policy binding | per tenant | application → `<access_group>` group |
-| SCIM network groups | per tenant, optional | `[scim] groups`, e.g. `pod-nile-workshop-1-employee`, `pod-nile-workshop-1-contractor` |
+| SCIM network groups | per tenant, optional | `[scim] groups`, e.g. `NileWorkshop1Employee`, `NileWorkshop1Contractor` |
 | SCIM provider + hidden application | per tenant, optional | `SCIM for Nile Network - <domain>`, app slug `<slug>-network` (§3.8) |
 
 **One group per tenant.** Each Nile Portal instance has exactly one authentik group, e.g.
-`pod-nile-workshop-1`. That group does two jobs:
+`NileWorkshop1Admin`. That group does two jobs:
 
 * *Access:* it is the only group bound to that tenant's application. A user from another tenant
   gets "access denied" in authentik before any assertion is sent.
 * *Role:* its name is sent in `memberOf`. The tenant's Nile group rule maps it to
   **Administrator**.
 
-So every member of `pod-nile-workshop-X` is an administrator of Nile Workshop X, and only of
+So every member of `NileWorkshopXAdmin` is an administrator of Nile Workshop X, and only of
 that instance. There are no shared role groups. Giving someone a non-admin role would need a
 second per-tenant group and a second Nile group rule, which this setup doesn't do.
+
+**Group names are CamelCase, letters and digits only** (e.g. `NileWorkshop1Admin`,
+`NileWorkshop1Employee`). Nile Portal rejects group names containing hyphens, so the script
+refuses any `access_group` or `[scim] groups` entry that isn't `[A-Za-z0-9]+`. The groups were
+originally named `pod-nile-workshop-N`, `pod-nile-workshop-N-employee` and
+`pod-nile-workshop-N-contractor`; those old groups may still exist in authentik and are no
+longer used once a tenant is re-applied with the new names.
 
 Workshop instances on authentik.nile.global:
 
 | Nile Portal instance | Domain | Portal admin group | SCIM network groups | App slug |
 |---|---|---|---|---|
-| Nile Workshop 1 | `nileworkshop-1.com` | `pod-nile-workshop-1` | `pod-nile-workshop-1-employee`, `pod-nile-workshop-1-contractor` (live) | `nileworkshop-1_com` |
-| Nile Workshop 2 | `nileworkshop-2.com` (planned) | `pod-nile-workshop-2` | `pod-nile-workshop-2-employee`, `pod-nile-workshop-2-contractor` | `nileworkshop-2_com` |
-| Nile Workshop 3 | *(tbd)* | `pod-nile-workshop-3` | `pod-nile-workshop-3-employee`, `-contractor` | |
-| Nile Workshop 4 | *(tbd)* | `pod-nile-workshop-4` | `pod-nile-workshop-4-employee`, `-contractor` | |
+| Nile Workshop 1 | `nileworkshop-1.com` | `NileWorkshop1Admin` | `NileWorkshop1Employee`, `NileWorkshop1Contractor` (live) | `nileworkshop-1_com` |
+| Nile Workshop 2 | `nileworkshop-2.com` (planned) | `NileWorkshop2Admin` | `NileWorkshop2Employee`, `NileWorkshop2Contractor` | `nileworkshop-2_com` |
+| Nile Workshop 3 | *(tbd)* | `NileWorkshop3Admin` | `NileWorkshop3Employee`, `NileWorkshop3Contractor` | |
+| Nile Workshop 4 | *(tbd)* | `NileWorkshop4Admin` | `NileWorkshop4Employee`, `NileWorkshop4Contractor` | |
 
 **Slug.** Application slugs only allow `[-a-zA-Z0-9_]`. The tenant domain is turned into a slug
 by replacing `.` with `_`, e.g. `nileworkshop-1.com` → `nileworkshop-1_com`. Hostnames cannot
@@ -132,7 +139,7 @@ Directory > Groups > Create. API: `POST /api/v3/core/groups/`
 
 | Group | Superuser | Purpose |
 |---|---|---|
-| `<access_group>` (e.g. `pod-nile-workshop-1`) | no | may sign in to this tenant; Administrator in Nile via the group rule |
+| `<access_group>` (e.g. `NileWorkshop1Admin`) | no | may sign in to this tenant; Administrator in Nile via the group rule |
 
 This group is not `authentik Admins`. The PDF bound the application to `authentik Admins`, which
 would make every Nile admin a superuser in authentik.
@@ -162,7 +169,7 @@ Then:
   (`POST /api/v3/core/users/{id}/set_password/`). Otherwise set it in the UI: user > **Set password**.
   The script only resets passwords on existing users when run with `--set-passwords`.
 
-Users on this instance: `shiv@nileworkshop-1.com` (admin; also in `pod-nile-workshop-1-employee`
+Users on this instance: `shiv@nileworkshop-1.com` (admin; also in `NileWorkshop1Employee`
 as the SCIM test user).
 
 ### 3.4 Signing keypair (shared)
@@ -252,7 +259,7 @@ Since 2026.5, authentik serves SSO for every binding from one endpoint,
 ### 3.8 SCIM provisioning of network groups (optional, per tenant)
 
 Configured only when the tenant config has a `[scim]` section. Nile uses the pushed groups
-(e.g. `pod-nile-workshop-1-employee`, `pod-nile-workshop-1-contractor`) to grant network access.
+(e.g. `NileWorkshop1Employee`, `NileWorkshop1Contractor`) to grant network access.
 
 **Roles.** Nile is the SCIM server and authentik is the SCIM client. authentik pushes users and
 groups to `https://u1.nile-global.cloud/api/v1/scim` with a static bearer token.
@@ -301,7 +308,7 @@ API: `POST /api/v3/providers/scim/`, `POST /api/v3/core/applications/` with
  "emails": [{"type": "other", "value": "shiv@nileworkshop-1.com", "primary": true}],
  "active": true, "externalId": "<hash>"}
 {"schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
- "displayName": "pod-nile-workshop-1-employee", "externalId": "<group uuid>", "members": [...]}
+ "displayName": "NileWorkshop1Employee", "externalId": "<group uuid>", "members": [...]}
 ```
 
 **Timing.** Changes are pushed immediately: membership changes, user edits, deactivation. A full
@@ -354,7 +361,7 @@ GLOBAL SETTINGS > Identity > **Group rules**
 
 1. **ADD GROUP MAPPING**: Friendly name `memberOf`, External name `memberOf`, Type **ARRAY**. Click **SAVE**.
 2. **ADD GROUP RULE**: Nile role **Administrator**, value = this tenant's group, e.g.
-   `pod-nile-workshop-1` for Nile Workshop 1.
+   `NileWorkshop1Admin` for Nile Workshop 1.
 3. Click **INACTIVE** on the rule to switch it to **ACTIVE**.
 
 The value must match `tenant.access_group` in the tenant config exactly (case-sensitive).
@@ -466,13 +473,13 @@ objects alone.
 | `request.user.ak_groups.all()` | `request.user.groups.all()` | `ak_groups` deprecated in 2026.2 |
 | Mappings named `firstName` … | `Nile: firstName` … | avoid changing mappings used by an existing tenant |
 | 5 attributes (`mail` only) | 6 attributes, adds `email` | Nile SP metadata marks `email` required |
-| Bind app to `authentik Admins` | bind to the tenant's group (`pod-nile-workshop-X`) | no authentik superuser rights for Nile users; tenant isolation |
+| Bind app to `authentik Admins` | bind to the tenant's group (`NileWorkshopXAdmin`) | no authentik superuser rights for Nile users; tenant isolation |
 | "Issuer" = `authentik` | Issuer override empty; issuer = per-tenant metadata URL | field renamed in 2026.5; default changed |
 | SSO URL `/sso/binding/post/` | unified `/application/saml/<slug>/` | unified endpoint since 2026.5; old URL still works |
 | `authentik Self-signed Certificate` | dedicated `Nile SAML Signing` keypair, 10 years | built-in cert valid 1 year; it expired 2026-09-20 |
 | Slug = free text (`authentik`) | slug = tenant domain (`.` → `_`) | many tenants share one IdP |
 | Manually edit provider with Nile entityID/Location | put Nile SP metadata in config, re-run `apply` | repeatable |
-| "Two rules" (only one described) | one rule: Administrator → `pod-nile-workshop-X` | one group per tenant |
+| "Two rules" (only one described) | one rule: Administrator → `NileWorkshopXAdmin` | one group per tenant |
 | Download metadata and cert from UI | written to `out/<domain>/` by the script | |
 
 ## 9. Existing state on authentik.nile.global (not managed by the script)
@@ -481,4 +488,4 @@ objects alone.
   mappings with `ak_groups`, binds `authentik Admins`, has issuer `authentik`, and signs with the
   **expired** `authentik Self-signed Certificate`. Consider migrating it to this model.
 * Groups `NileAdmin`, `pod-nw3-access` and `pod-nw4-access` predate this setup and aren't used by
-  it. Don't confuse them with the `pod-nile-workshop-N` groups.
+  it. Don't confuse them with the `NileWorkshopNAdmin` groups.

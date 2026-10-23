@@ -3,8 +3,8 @@
 Connect Nile Portal tenants to **authentik** as their identity provider:
 
 * **SSO (SAML 2.0):** tenant administrators sign in to the Nile Portal with their authentik account.
-* **SCIM (optional):** authentik pushes network groups (e.g. `pod-nile-workshop-2-employee`,
-  `pod-nile-workshop-2-contractor`) and their members to Nile, which uses them to grant network
+* **SCIM (optional):** authentik pushes network groups (e.g. `NileWorkshop2Employee`,
+  `NileWorkshop2Contractor`) and their members to Nile, which uses them to grant network
   access.
 
 One authentik serves many Nile Portal tenants. Each tenant is described by **one parameters file**,
@@ -78,10 +78,10 @@ Edit it. The template is already filled in for Workshop 2. Every field is explai
 | Section | What to set now | Later |
 |---|---|---|
 | `[authentik]` | `url`, and `token` (or `token_file`) | |
-| `[tenant]` | `domain` (e.g. `nileworkshop-2.com`), `access_group` (e.g. `pod-nile-workshop-2`) | |
+| `[tenant]` | `domain` (e.g. `nileworkshop-2.com`), `access_group` (e.g. `NileWorkshop2Admin`). Group names must be CamelCase letters and digits: Nile rejects hyphens | |
 | `[signing]` | leave as is | |
 | `[nile_sp]` | leave empty | step 6: `metadata_file` |
-| `[scim]` | `groups` (e.g. `pod-nile-workshop-2-employee`, `-contractor`), `dry_run = true`. Delete the section if you don't want SCIM | step 6: `key_file` |
+| `[scim]` | `groups` (e.g. `NileWorkshop2Employee`, `NileWorkshop2Contractor`), `dry_run = true`. Delete the section if you don't want SCIM | step 6: `key_file` |
 | `[[users]]` | one block per user. `admin = true` → Portal admin; `groups = [...]` → SCIM network groups | |
 
 Everything else in `tenants/` is **gitignored**: your parameters file, the Nile metadata and the
@@ -151,7 +151,7 @@ mode.
 GLOBAL SETTINGS > Identity > **Group rules**:
 
 1. **ADD GROUP MAPPING**: Friendly name `memberOf`, External name `memberOf`, Type `ARRAY`. Click **SAVE**.
-2. **ADD GROUP RULE**: Administrator, value `pod-nile-workshop-2` (your `access_group`).
+2. **ADD GROUP RULE**: Administrator, value `NileWorkshop2Admin` (your `access_group`).
 3. Switch the rule from **INACTIVE** to **ACTIVE**.
 
 Account Management > Domains > **Add Domain** `nileworkshop-2.com`, then click **Verify**.
@@ -184,7 +184,7 @@ users, deleted groups. It also runs a full sync every 4 hours.
 | Task | How |
 |---|---|
 | Add a Portal admin | `[[users]]` with `admin = true`, then `apply` |
-| Add a network user | `[[users]]` with `admin = false`, `groups = ["pod-nile-workshop-2-employee"]`, then `apply`. Users added to the group in the authentik UI are pushed too |
+| Add a network user | `[[users]]` with `admin = false`, `groups = ["NileWorkshop2Employee"]`, then `apply`. Users added to the group in the authentik UI are pushed too |
 | Add a network group | append it to `[scim] groups`, then `apply`. It appears in Nile within seconds |
 | Remove a network group | remove it from `[scim] groups` **and** delete the group in authentik. It disappears from Nile |
 | Remove a user's access | remove them from the group, or deactivate them, in the authentik UI. SCIM deprovisions them in Nile. `apply` only ever *adds* memberships |
@@ -213,7 +213,7 @@ On Windows, use `py -3 scripts\nile_idp.py ...`.
 |---|---|---|
 | SAML property mappings | shared | `Nile: firstName`, `lastName`, `mail`, `email`, `mobile`, `memberOf` |
 | Signing keypair | shared | `Nile SAML Signing` (10 years) |
-| Portal admin group | tenant | `access_group`, e.g. `pod-nile-workshop-2` |
+| Portal admin group | tenant | `access_group`, e.g. `NileWorkshop2Admin` |
 | SAML provider + application | tenant | `Nile Portal - <domain>`, slug `<domain, . → _>` |
 | SCIM network groups | tenant | `[scim] groups` |
 | SCIM provider + hidden application | tenant | `SCIM for Nile Network - <domain>`, app `Nile Network - <domain>` |

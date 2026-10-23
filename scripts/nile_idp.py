@@ -14,6 +14,7 @@ See docs/authentik-nile-saml-spec.md for what each step does and why.
 import argparse
 import json
 import os
+import re
 import stat
 import sys
 import tomllib
@@ -110,6 +111,13 @@ def load_config(path):
         if extra:
             die(f"user {u.get('email')}: groups {extra} are not listed in [scim] groups")
 
+    access_group = t.get("access_group") or die(
+        f"tenant.access_group is required in {path} (e.g. \"NileWorkshop1Admin\")")
+    # Nile Portal rejects group names with hyphens or other punctuation; use CamelCase.
+    for g in [access_group] + (scim["groups"] if scim else []):
+        if not re.fullmatch(r"[A-Za-z0-9]+", g):
+            die(f"group name {g!r} must be letters and digits only (CamelCase, e.g. \"NileWorkshop1Admin\")")
+
     return {
         "url": ak["url"].rstrip("/"),
         "token": token,
@@ -117,8 +125,7 @@ def load_config(path):
         "slug": slug,
         "app_name": app_name,
         "provider_name": f"Provider for {app_name}",
-        "access_group": t.get("access_group") or die(
-            f"tenant.access_group is required in {path} (e.g. \"pod-nile-workshop-1\")"),
+        "access_group": access_group,
         "launch_url": t.get("launch_url", ""),
         "issuer_override": t.get("issuer_override", ""),
         "authorization_flow": flows.get("authorization", "default-provider-authorization-explicit-consent"),
@@ -152,7 +159,7 @@ def load_scim(scim, path, domain, slug):
     url = scim.get("url") or (key["url"].rstrip("/") + NILE_SCIM_PATH if key.get("url") else "")
     groups = scim.get("groups", [])
     if not groups:
-        die("[scim] groups must list at least one group, e.g. [\"pod-nile-workshop-1-employee\"]")
+        die("[scim] groups must list at least one group, e.g. [\"NileWorkshop1Employee\"]")
     return {
         # Without a key yet, groups and memberships are still created; the provider waits.
         "ready": bool(token and url),
@@ -422,10 +429,13 @@ def ensure_scim(api, cfg, group_pks):
     """
     scim = cfg["scim"]
     log("== SCIM provider")
-    if not scim["ready"]:
+    cur = find_one(api.list("providers/scim/", name=scim["provider_name"]), "name", scim["provider_name"])
+    # An existing provider keeps its token, so updating it only needs the url.
+    if not scim["ready"] and not (cur and scim["url"]):
         log("  NOTE     [scim] has no key_file/token (and url) yet: groups are created, the SCIM provider is not.")
         log("           Add the Nile SCIM key file to [scim] key_file and re-run apply.")
         return None
+    token = {"token": scim["token"]} if scim["token"] else {}
     mappings = api.list("propertymappings/provider/scim/")
     user_map = find_one(mappings, "managed", SCIM_USER_MANAGED) or die(f"{SCIM_USER_MANAGED} not found")
     group_map = find_one(mappings, "managed", SCIM_GROUP_MANAGED) or die(f"{SCIM_GROUP_MANAGED} not found")
@@ -444,15 +454,14 @@ def ensure_scim(api, cfg, group_pks):
         "property_mappings_group": [group_map["pk"]],
         "dry_run": scim["dry_run"],
     }
-    cur = find_one(api.list("providers/scim/", name=scim["provider_name"]), "name", scim["provider_name"])
-    # The token is write-only in the API, so it is always sent and can't be diffed.
+    # The token is write-only in the API, so it is sent whenever known and can't be diffed.
     if not cur:
-        cur = api.write("POST", "providers/scim/", {**body, "token": scim["token"]}, scim["provider_name"])
+        cur = api.write("POST", "providers/scim/", {**body, **token}, scim["provider_name"])
         log(f"  created  {scim['provider_name']}")
     else:
         diff = [k for k, v in body.items()
                 if (sorted(cur.get(k) or []) != sorted(v) if isinstance(v, list) else cur.get(k) != v)]
-        api.write("PATCH", f"providers/scim/{cur['pk']}/", {**body, "token": scim["token"]}, scim["provider_name"])
+        api.write("PATCH", f"providers/scim/{cur['pk']}/", {**body, **token}, scim["provider_name"])
         log(f"  {'updated ' if diff else 'ok      '} {scim['provider_name']}" + (f" ({', '.join(diff)})" if diff else ""))
     log(f"  NOTE     dry_run = {scim['dry_run']}" + (": nothing is written to Nile" if scim["dry_run"] else ": LIVE, writes to Nile"))
 
@@ -607,10 +616,10 @@ def cmd_verify(api, cfg, args):
 def verify_scim(api, cfg, check):
     scim = cfg["scim"]
     log(f"== Verify SCIM ({scim['url'] or 'no url'})")
-    if not scim["ready"]:
+    prov = find_one(api.list("providers/scim/", name=scim["provider_name"]), "name", scim["provider_name"])
+    if not scim["ready"] and not prov:
         log("         SCIM not configured yet ([scim] key_file/token missing); skipped")
         return
-    prov = find_one(api.list("providers/scim/", name=scim["provider_name"]), "name", scim["provider_name"])
     if not prov:
         check(False, f"SCIM provider {scim['provider_name']!r} exists")
         return
