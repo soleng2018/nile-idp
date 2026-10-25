@@ -131,7 +131,8 @@ Differences from the PDF:
   `andrettiauthentik` tenant. They are left untouched.
 
 The NameID uses its own mapping **`Nile: NameID login`** (`saml_name` = `nameid`,
-expression `return request.user.attributes.get("mail") or request.user.email`). The managed
+expression `return request.user.attributes.get("mail") or request.user.username`). The fallback is
+the username, never `user.email`, so a user without `attributes.mail` cannot send a real address. The managed
 mapping `authentik default SAML Mapping: Email` sends `user.email`, which for a learner is their
 real address (`jane@acme.com`) rather than their Nile login (`jane@nileworkshop-1.com`); Nile
 routes logins by the NameID's domain and fails that assertion with "Nile cloud services

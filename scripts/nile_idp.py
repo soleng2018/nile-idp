@@ -52,10 +52,10 @@ MAPPINGS = [
 ]
 
 # The provider's NameID mapping, not an attribute: Nile routes logins by the domain of the
-# NameID, so it has to be the user's Nile login (attributes.mail / the username), never the
+# NameID, so it has to be the user's Nile login (attributes.mail, else the username), never the
 # user.email field, which holds the learner's real address.
 NAMEID_MAPPING = ("Nile: NameID login", "nameid",
-                  'return request.user.attributes.get("mail") or request.user.email')
+                  'return request.user.attributes.get("mail") or request.user.username')
 
 
 def log(msg=""):
