@@ -130,8 +130,12 @@ Differences from the PDF:
   `memberOf` from the PDF already exist on this instance and are used by the older
   `andrettiauthentik` tenant. They are left untouched.
 
-The NameID uses the built-in managed mapping **`authentik default SAML Mapping: Email`**
-(`goauthentik.io/providers/saml/email`).
+The NameID uses its own mapping **`Nile: NameID login`** (`saml_name` = `nameid`,
+expression `return request.user.attributes.get("mail") or request.user.email`). The managed
+mapping `authentik default SAML Mapping: Email` sends `user.email`, which for a learner is their
+real address (`jane@acme.com`) rather than their Nile login (`jane@nileworkshop-1.com`); Nile
+routes logins by the NameID's domain and fails that assertion with "Nile cloud services
+encountered an unknown error".
 
 ### 3.2 Group (per tenant)
 
@@ -206,7 +210,7 @@ Applications > Providers > Create > SAML Provider. API: `POST /api/v3/providers/
 | Sign responses | `sign_response` | `false` | matches the working tenant |
 | Digest / Signature algorithm | | SHA-256 / RSA-SHA256 | |
 | Property mappings | `property_mappings` | the six `Nile:` mappings only | the seven default mappings are *not* attached |
-| NameID Property Mapping | `name_id_mapping` | `authentik default SAML Mapping: Email` | Nile/Okta matches users by email |
+| NameID Property Mapping | `name_id_mapping` | `Nile: NameID login` | Nile matches users by the login (`attributes.mail`), not `user.email` |
 | Assertion valid not before / not on or after | | `minutes=-5` / `minutes=5` | authentik defaults |
 | Session valid not on or after | | `minutes=86400` (60 days) | matches Nile SSO timeout of 60 days |
 
@@ -395,7 +399,7 @@ python3 scripts/nile_idp.py verify tenants/<domain>.toml
 | Signing certificate not expired | `cert_expiry` |
 | Application uses the provider | application `provider` |
 | Each configured user may use the application | `GET core/applications/<slug>/check_access/?for_user=` |
-| NameID is the user's email; `memberOf` contains `<access_group>`; first/last name and mail are non-empty (admin users) | `GET providers/saml/{id}/preview_user/?for_user=` (renders the real assertion attributes) |
+| NameID is the user's Nile login; `memberOf` contains `<access_group>`; first/last name and mail are non-empty (admin users) | `GET providers/saml/{id}/preview_user/?for_user=` (renders the real assertion attributes) |
 | SCIM: hidden app carries the SCIM provider; each user with `groups` is in scope | application `backchannel_providers`; `check_access` on `<slug>-network` |
 | SCIM: sync status, objects linked in Nile, and what the last run sent or would send | `providers/scim/{id}/sync/status/`, `providers/scim_users/`, `providers/scim_groups/`, task logs |
 

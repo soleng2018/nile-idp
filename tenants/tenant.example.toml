@@ -16,7 +16,7 @@
 # authentik (the identity provider, shared by all tenants)
 # -----------------------------------------------------------------------------
 [authentik]
-url = "https://authentik.nile.global"
+url = "https://authentik.dev.app.nile-global.cloud/"
 
 # API token of an authentik superuser (Directory > Tokens and App passwords, intent "API").
 # SECRET. Set ONE of: token, token_file, or the AUTHENTIK_TOKEN environment variable.

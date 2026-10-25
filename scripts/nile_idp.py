@@ -26,7 +26,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 PLACEHOLDER_ACS = "https://dummy.com"
-EMAIL_NAMEID_MANAGED = "goauthentik.io/providers/saml/email"
 SCIM_USER_MANAGED = "goauthentik.io/providers/scim/user"
 SCIM_GROUP_MANAGED = "goauthentik.io/providers/scim/group"
 NILE_SCIM_PATH = "/api/v1/scim"
@@ -51,6 +50,12 @@ MAPPINGS = [
     ("Nile: memberOf", "memberOf",
      "for group in request.user.groups.all():\n    yield group.name"),
 ]
+
+# The provider's NameID mapping, not an attribute: Nile routes logins by the domain of the
+# NameID, so it has to be the user's Nile login (attributes.mail / the username), never the
+# user.email field, which holds the learner's real address.
+NAMEID_MAPPING = ("Nile: NameID login", "nameid",
+                  'return request.user.attributes.get("mail") or request.user.email')
 
 
 def log(msg=""):
@@ -243,26 +248,32 @@ def find_one(items, key, value):
 
 # --------------------------------------------------------------------------- steps
 
+def ensure_mapping(api, existing, body):
+    """Create or update one SAML property mapping, matched by name. Returns its pk."""
+    name = body["name"]
+    cur = find_one(existing, "name", name)
+    if not cur:
+        cur = api.write("POST", "propertymappings/provider/saml/", body, name)
+        log(f"  created  {name}")
+    elif any(cur.get(k) != v for k, v in body.items()):
+        api.write("PATCH", f"propertymappings/provider/saml/{cur['pk']}/", body, name)
+        log(f"  updated  {name}")
+    else:
+        log(f"  ok       {name}")
+    return cur["pk"]
+
+
 def ensure_mappings(api):
     log("== SAML property mappings (shared)")
     existing = api.list("propertymappings/provider/saml/")
-    pks = []
-    for name, saml_name, expr in MAPPINGS:
-        body = {"name": name, "saml_name": saml_name, "friendly_name": saml_name, "expression": expr}
-        cur = find_one(existing, "name", name)
-        if not cur:
-            cur = api.write("POST", "propertymappings/provider/saml/", body, name)
-            log(f"  created  {name}")
-        elif any(cur.get(k) != v for k, v in body.items()):
-            api.write("PATCH", f"propertymappings/provider/saml/{cur['pk']}/", body, name)
-            log(f"  updated  {name}")
-        else:
-            log(f"  ok       {name}")
-        pks.append(cur["pk"])
-    email = find_one(existing, "managed", EMAIL_NAMEID_MANAGED)
-    if not email:
-        die(f"managed mapping {EMAIL_NAMEID_MANAGED} not found")
-    return pks, email["pk"]
+    pks = [ensure_mapping(api, existing, {"name": name, "saml_name": saml_name,
+                                          "friendly_name": saml_name, "expression": expr})
+           for name, saml_name, expr in MAPPINGS]
+    # No friendly_name: the NameID is not emitted as an attribute, so it has nothing to label.
+    name, saml_name, expr = NAMEID_MAPPING
+    nameid_pk = ensure_mapping(api, existing, {"name": name, "saml_name": saml_name,
+                                               "friendly_name": None, "expression": expr})
+    return pks, nameid_pk
 
 
 def ensure_group(api, name):
@@ -294,10 +305,11 @@ def ensure_users(api, cfg, group_pks, set_passwords):
     for u in cfg["users"]:
         username = u.get("username") or u["email"]
         email = u.get("email") or username
-        if not email.lower().endswith("@" + cfg["domain"]):
-            log(f"  WARNING  {email} is not in tenant domain {cfg['domain']}; Nile routes logins by email domain")
+        if not username.lower().endswith("@" + cfg["domain"]):
+            log(f"  WARNING  {username} is not in tenant domain {cfg['domain']}; Nile routes logins by the NameID domain")
         first, last = u.get("first_name", ""), u.get("last_name", "")
-        attrs = {"mail": email, "firstName": first, "lastName": last, "mobile": str(u.get("mobile", ""))}
+        # mail is the Nile login, which the NameID mapping sends; email may be the real address.
+        attrs = {"mail": username, "firstName": first, "lastName": last, "mobile": str(u.get("mobile", ""))}
         name = u.get("name") or " ".join(p for p in (first, last) if p) or username
 
         cur = find_one(api.list("core/users/", username=username), "username", username)
@@ -618,7 +630,7 @@ def cmd_verify(api, cfg, args):
         log(f"         NameID  = {preview.get('nameID')}")
         for k, v in attrs.items():
             log(f"         {k:<8}= {v}")
-        check(preview.get("nameID", "").lower() == (u.get("email") or username).lower(), "NameID is the user's email")
+        check(preview.get("nameID", "").lower() == username.lower(), "NameID is the user's Nile login")
         check(cfg["access_group"] in attrs.get("memberOf", []), f"memberOf contains {cfg['access_group']}")
         for a in ("firstName", "lastName", "email", "mail"):
             check(any(attrs.get(a, [])), f"{a} is non-empty")
