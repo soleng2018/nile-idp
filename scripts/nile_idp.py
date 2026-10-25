@@ -29,6 +29,13 @@ PLACEHOLDER_ACS = "https://dummy.com"
 SCIM_USER_MANAGED = "goauthentik.io/providers/scim/user"
 SCIM_GROUP_MANAGED = "goauthentik.io/providers/scim/group"
 NILE_SCIM_PATH = "/api/v1/scim"
+# Shared authorization flow for the Nile providers. No stages, so there is no consent screen, and
+# no bindings: the stock default flows carry a deny policy for booking-created learners
+# (path hol/learners), who must be able to sign in to Nile. Access is decided by each
+# application's group binding alone, which verify insists on.
+NILE_FLOW = {"name": "Nile authorization", "title": "Redirecting to %(app)s", "slug": "nile-authorization",
+             "designation": "authorization", "authentication": "require_authenticated",
+             "policy_engine_mode": "any"}
 GROUP_FLAG = "hol_testbed_group"   # attribute stamped (as boolean true) on every predefined group
 MD_NS = {"md": "urn:oasis:names:tc:SAML:2.0:metadata"}
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -134,7 +141,7 @@ def load_config(path):
         "access_group": access_group,
         "launch_url": t.get("launch_url", ""),
         "issuer_override": t.get("issuer_override", ""),
-        "authorization_flow": flows.get("authorization", "default-provider-authorization-explicit-consent"),
+        "authorization_flow": flows.get("authorization", NILE_FLOW["slug"]),
         "invalidation_flow": flows.get("invalidation", "default-provider-invalidation-flow"),
         "signing_certificate": cfg.get("signing", {}).get("certificate", "Nile SAML Signing"),
         "signing_validity_days": int(cfg.get("signing", {}).get("validity_days", 3650)),
@@ -364,14 +371,51 @@ def ensure_signing_kp(api, cfg):
     return kp["pk"]
 
 
-def ensure_provider(api, cfg, mapping_pks, nameid_pk, signing_kp_pk):
+def ensure_flow(api, cfg):
+    """The providers' authorization flow, found by slug. Only the Nile flow is created or updated;
+    a flow named in a tenant's [flows] is looked up and left alone. Never touches bindings."""
+    log("== Authorization flow (shared)")
+    slug = cfg["authorization_flow"]
+    cur = api.get(f"flows/instances/{slug}/")
+    if slug != NILE_FLOW["slug"]:
+        if not cur:
+            die(f"flow {slug} not found")
+        log(f"  ok       {slug} (set in [flows], not managed)")
+        return cur["pk"]
+    if not cur:
+        cur = api.write("POST", "flows/instances/", NILE_FLOW, slug)
+        log(f"  created  {NILE_FLOW['name']} ({slug})")
+    elif any(cur.get(k) != v for k, v in NILE_FLOW.items()):
+        api.write("PATCH", f"flows/instances/{slug}/", NILE_FLOW, slug)
+        log(f"  updated  {NILE_FLOW['name']} ({slug})")
+    else:
+        log(f"  ok       {NILE_FLOW['name']} ({slug})")
+    return cur["pk"]
+
+
+def flow_bindings(api, flow_pk):
+    """Labels for every policy/group/user binding and stage binding on a flow.
+    policies/bindings/ rejects a flow pk in ?target=, so that list is filtered here."""
+    out = []
+    for b in api.list("policies/bindings/"):
+        if b.get("target") == flow_pk:
+            obj = b.get("policy_obj") or b.get("group_obj") or b.get("user_obj") or {}
+            kind = "policy" if b.get("policy") else "group" if b.get("group") else "user"
+            out.append(f"{kind} {obj.get('name') or obj.get('username') or b['pk']}")
+    for b in api.list("flows/bindings/", target=flow_pk):
+        out.append(f"stage {(b.get('stage_obj') or {}).get('name') or b['stage']}")
+    return out
+
+
+def ensure_provider(api, cfg, mapping_pks, nameid_pk, signing_kp_pk, auth_flow_pk):
     log("== SAML provider")
     flow = lambda slug: (api.get(f"flows/instances/{slug}/") or die(f"flow {slug} not found"))["pk"]
 
     acs = cfg["sp_acs_url"] or PLACEHOLDER_ACS
     body = {
         "name": cfg["provider_name"],
-        "authorization_flow": flow(cfg["authorization_flow"]),
+        # Passed in rather than looked up here: in a dry run the Nile flow does not exist yet.
+        "authorization_flow": auth_flow_pk,
         "invalidation_flow": flow(cfg["invalidation_flow"]),
         "acs_url": acs,
         "audience": cfg["sp_entity_id"],
@@ -578,7 +622,8 @@ def cmd_apply(api, cfg, args):
     group_pks = {g: ensure_group(api, g) for g in names}
     ensure_users(api, cfg, group_pks, args.set_passwords)
     signing_kp_pk = ensure_signing_kp(api, cfg)
-    provider_pk = ensure_provider(api, cfg, mapping_pks, nameid_pk, signing_kp_pk)
+    auth_flow_pk = ensure_flow(api, cfg)
+    provider_pk = ensure_provider(api, cfg, mapping_pks, nameid_pk, signing_kp_pk, auth_flow_pk)
     ensure_application(api, cfg, provider_pk, group_pks[cfg["access_group"]])
     if cfg["scim"]:
         ensure_scim(api, cfg, group_pks)
@@ -622,6 +667,18 @@ def cmd_verify(api, cfg, args):
           f"signing certificate {kp['name']!r} not expired (expires {expiry[:10]})")
     app = api.get(f"core/applications/{cfg['slug']}/")
     check(app and app.get("provider") == prov["pk"], f"application {cfg['slug']} uses this provider")
+
+    flow = find_one(api.list("flows/instances/"), "pk", prov["authorization_flow"]) or {}
+    check(flow.get("slug") == cfg["authorization_flow"],
+          f"authorization flow is {cfg['authorization_flow']}"
+          + ("" if flow.get("slug") == cfg["authorization_flow"] else f" (provider has {flow.get('slug')}; re-run apply)"))
+    if flow.get("slug") == NILE_FLOW["slug"]:
+        # The flow lets every authenticated user through, so it must stay empty, and the
+        # application's own binding is the only thing keeping other users (e.g. learners) out.
+        extra = flow_bindings(api, flow["pk"])
+        check(not extra, f"flow {flow['slug']} has no bindings" + (f" (found: {', '.join(extra)})" if extra else ""))
+        gates = [b for b in api.list("policies/bindings/", target=app["pk"]) if b["enabled"] and not b["negate"]] if app else []
+        check(gates, f"application {cfg['slug']} has an enabled, non-negated policy or group binding")
 
     for u in cfg["users"]:
         username = u.get("username") or u["email"]

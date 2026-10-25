@@ -166,7 +166,7 @@ Every check should print `PASS`. With SCIM in dry run, `verify` also lists what 
 **would send** to Nile.
 
 Then open `https://u1.nile-global.cloud/`, enter an admin user's email, sign in at authentik
-(approve the consent screen the first time), and confirm you land in the Portal as Administrator.
+(there is no consent screen), and confirm you land in the Portal as Administrator.
 
 ### 9. SCIM: go live (optional)
 

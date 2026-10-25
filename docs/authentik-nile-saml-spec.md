@@ -200,7 +200,7 @@ Applications > Providers > Create > SAML Provider. API: `POST /api/v3/providers/
 | UI field | API field | Value | Note |
 |---|---|---|---|
 | Name | `name` | `Provider for Nile Portal - <domain>` | |
-| Authorization flow | `authorization_flow` | `default-provider-authorization-explicit-consent` | users approve once, as in the PDF |
+| Authorization flow | `authorization_flow` | `nile-authorization` | see below; override with `[flows] authorization` |
 | Invalidation flow | `invalidation_flow` | `default-provider-invalidation-flow` | required since 2024.10 |
 | ACS URL | `acs_url` | Nile/Okta `AssertionConsumerService Location` | `https://dummy.com` until §4 is done |
 | Audience | `audience` | Nile/Okta `entityID` | empty until §4 is done |
@@ -214,6 +214,17 @@ Applications > Providers > Create > SAML Provider. API: `POST /api/v3/providers/
 | NameID Property Mapping | `name_id_mapping` | `Nile: NameID login` | Nile matches users by the login (`attributes.mail`), not `user.email` |
 | Assertion valid not before / not on or after | | `minutes=-5` / `minutes=5` | authentik defaults |
 | Session valid not on or after | | `minutes=86400` (60 days) | matches Nile SSO timeout of 60 days |
+
+Authorization flow: the script creates one shared flow, **`Nile authorization`** (slug
+`nile-authorization`, designation `authorization`, authentication `require_authenticated`, policy
+engine mode `any`, title `Redirecting to %(app)s`) with **no stages and no bindings**. A flow with
+no stages authorizes straight through, so there is no consent screen. The stock
+`default-provider-authorization-*` flows are not used because this instance binds
+`hol-learner-isolation` to both, which denies every user under path `hol/learners`, i.e. every
+learner the reservations app creates. Because the Nile flow lets any authenticated user through,
+the application's group binding (§3.6) is the only access control; `verify` fails if the flow
+gains a binding or the application loses its own. Existing flows, stages, policies and bindings
+are never changed.
 
 Issuer note: the PDF's provider used the issuer `authentik`. On 2026.8 the default issuer is the
 tenant's metadata URL. Either works, as long as the **Nile "IdP Issuer URI" is exactly the
@@ -400,14 +411,17 @@ python3 scripts/nile_idp.py verify tenants/<domain>.toml
 | Metadata URLs are `https://` | trusted-proxy configuration |
 | Signing certificate not expired | `cert_expiry` |
 | Application uses the provider | application `provider` |
+| Provider uses the configured authorization flow | provider `authorization_flow` |
+| `nile-authorization` has no policy, group, user or stage bindings (names any it finds) | `policies/bindings/` (filtered locally: `?target=` rejects a flow), `flows/bindings/?target=` |
+| The application has an enabled, non-negated binding (the flow itself admits everyone) | `policies/bindings/?target=<app>` |
 | Each configured user may use the application | `GET core/applications/<slug>/check_access/?for_user=` |
 | NameID is the user's Nile login; `memberOf` contains `<access_group>`; first/last name and mail are non-empty (admin users) | `GET providers/saml/{id}/preview_user/?for_user=` (renders the real assertion attributes) |
 | SCIM: hidden app carries the SCIM provider; each user with `groups` is in scope | application `backchannel_providers`; `check_access` on `<slug>-network` |
 | SCIM: sync status, objects linked in Nile, and what the last run sent or would send | `providers/scim/{id}/sync/status/`, `providers/scim_users/`, `providers/scim_groups/`, task logs |
 
 End-to-end test: open `https://u1.nile-global.cloud/` and enter the user's email. You should be
-redirected to authentik, sign in, approve the consent screen (first time only), and land in the
-Nile Portal as an administrator.
+redirected to authentik, sign in (no consent screen), and land in the Nile Portal as an
+administrator. Learners (path `hol/learners`) get in only while they are in `<access_group>`.
 
 ---
 
@@ -416,6 +430,8 @@ Nile Portal as an administrator.
 | Symptom | Likely cause |
 |---|---|
 | authentik: "Permission denied" / "access denied" | user is not in `<access_group>` |
+| authentik: 404 at `/application/saml/<slug>/` | user fails the application's access check: not in `<access_group>` (learners included) |
+| Learner passes `check_access` but is still denied | provider still on a `default-provider-authorization-*` flow (`hol-learner-isolation`); re-run `apply` |
 | Okta/Nile: invalid issuer | Nile "IdP Issuer URI" ≠ `entityID` in authentik metadata (e.g. old value `authentik`) |
 | Okta/Nile: signature invalid | certificate in Nile ≠ provider's signing keypair (keypair changed or rotated) |
 | Okta/Nile: audience or recipient mismatch | `nile_sp` not filled in, or `apply` not re-run after filling it |
