@@ -606,6 +606,15 @@ def cmd_verify(api, cfg, args):
     log(f"== Verify {cfg['domain']}")
     check(prov["acs_url"] != PLACEHOLDER_ACS, f"ACS URL set from Nile ({prov['acs_url']})")
     check(prov["audience"], f"Audience set from Nile ({prov['audience'] or 'empty'})")
+    # A provider left pointing at another tenant's Nile provider passes the two checks above,
+    # so compare it with [nile_sp] as well: it catches a stale run and a mixed-up metadata file.
+    if cfg["sp_acs_url"]:
+        check(prov["acs_url"] == cfg["sp_acs_url"],
+              "ACS URL matches [nile_sp]" + ("" if prov["acs_url"] == cfg["sp_acs_url"]
+                                             else f" (config has {cfg['sp_acs_url']}; re-run apply)"))
+        check(prov["audience"] == cfg["sp_entity_id"],
+              "Audience matches [nile_sp]" + ("" if prov["audience"] == cfg["sp_entity_id"]
+                                              else f" (config has {cfg['sp_entity_id']}; re-run apply)"))
     check(prov["url_download_metadata"].startswith("https://"), "metadata URLs are https (trusted proxy config OK)")
     kp = api.get(f"crypto/certificatekeypairs/{prov['signing_kp']}/")
     expiry = kp.get("cert_expiry", "")

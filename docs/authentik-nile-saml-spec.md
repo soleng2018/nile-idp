@@ -395,6 +395,7 @@ python3 scripts/nile_idp.py verify tenants/<domain>.toml
 | Check | How |
 |---|---|
 | ACS URL and Audience set from Nile (not placeholder) | provider fields |
+| ACS URL and Audience equal `[nile_sp]` (catches a stale run, or another tenant's metadata file) | provider fields vs config |
 | Metadata URLs are `https://` | trusted-proxy configuration |
 | Signing certificate not expired | `cert_expiry` |
 | Application uses the provider | application `provider` |
