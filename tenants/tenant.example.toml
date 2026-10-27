@@ -122,3 +122,13 @@ mobile     = ""
 password   = ""
 admin      = false
 groups     = ["NileWorkshop2Contractor"]
+
+# A network-only employee (provisioned to Nile by SCIM, cannot sign in to the Portal):
+[[users]]
+email      = "employee@nileworkshop-2.com"
+first_name = "Eve"
+last_name  = "Employee"
+mobile     = ""
+password   = ""
+admin      = false
+groups     = ["NileWorkshop2Employee"]
