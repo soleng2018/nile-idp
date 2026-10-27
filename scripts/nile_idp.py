@@ -36,7 +36,11 @@ NILE_SCIM_PATH = "/api/v1/scim"
 NILE_FLOW = {"name": "Nile authorization", "title": "Redirecting to %(app)s", "slug": "nile-authorization",
              "designation": "authorization", "authentication": "require_authenticated",
              "policy_engine_mode": "any"}
-GROUP_FLAG = "hol_testbed_group"   # attribute stamped (as boolean true) on every predefined group
+# Attributes stamped on the access (Admin) group only: the flag as a JSON boolean true and the
+# tenant domain. Other predefined groups must not carry them; apply removes them if present.
+GROUP_FLAG = "hol_testbed_group"
+GROUP_DOMAIN = "hol_testbed_domain"
+GROUP_ATTRS = (GROUP_FLAG, GROUP_DOMAIN)
 MD_NS = {"md": "urn:oasis:names:tc:SAML:2.0:metadata"}
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -283,17 +287,19 @@ def ensure_mappings(api):
     return pks, nameid_pk
 
 
-def ensure_group(api, name):
-    # Predefined groups are flat (no parent) and carry hol_testbed_group = true (a JSON boolean).
+def ensure_group(api, name, want):
+    # Predefined groups are flat (no parent). want holds the GROUP_ATTRS this group should have;
+    # any GROUP_ATTRS not in want are removed, and other attributes are left alone.
     cur = find_one(api.list("core/groups/", name=name, include_users="false"), "name", name)
     if not cur:
         log(f"  created  group {name}")
         return api.write("POST", "core/groups/", {"name": name, "is_superuser": False,
-                                                  "attributes": {GROUP_FLAG: True}}, name)["pk"]
+                                                  "attributes": want}, name)["pk"]
     patch = {}
     attrs = cur.get("attributes") or {}
-    if attrs.get(GROUP_FLAG) is not True:
-        patch["attributes"] = {**attrs, GROUP_FLAG: True}
+    new = {k: v for k, v in attrs.items() if k not in GROUP_ATTRS} | want
+    if new != attrs:
+        patch["attributes"] = new
     # Newer authentik has a "parents" list; older ones a single "parent".
     if cur.get("parents"):
         patch["parents"] = []
@@ -614,12 +620,18 @@ Metadata URL     : {prov['url_download_metadata']}
     return summary, prov
 
 
+def group_attrs(cfg, name):
+    if name == cfg["access_group"]:
+        return {GROUP_FLAG: True, GROUP_DOMAIN: cfg["domain"]}
+    return {}
+
+
 def cmd_apply(api, cfg, args):
     log(f"Tenant {cfg['domain']}  ->  {cfg['url']}  (app slug {cfg['slug']})" + ("  [DRY RUN]" if args.dry_run else ""))
     mapping_pks, nameid_pk = ensure_mappings(api)
     log("== Groups")
     names = [cfg["access_group"]] + (cfg["scim"]["groups"] if cfg["scim"] else [])
-    group_pks = {g: ensure_group(api, g) for g in names}
+    group_pks = {g: ensure_group(api, g, group_attrs(cfg, g)) for g in names}
     ensure_users(api, cfg, group_pks, args.set_passwords)
     signing_kp_pk = ensure_signing_kp(api, cfg)
     auth_flow_pk = ensure_flow(api, cfg)
@@ -679,6 +691,13 @@ def cmd_verify(api, cfg, args):
         check(not extra, f"flow {flow['slug']} has no bindings" + (f" (found: {', '.join(extra)})" if extra else ""))
         gates = [b for b in api.list("policies/bindings/", target=app["pk"]) if b["enabled"] and not b["negate"]] if app else []
         check(gates, f"application {cfg['slug']} has an enabled, non-negated policy or group binding")
+
+    for g in [cfg["access_group"]] + (cfg["scim"]["groups"] if cfg["scim"] else []):
+        group = find_one(api.list("core/groups/", name=g, include_users="false"), "name", g)
+        have = {k: v for k, v in ((group or {}).get("attributes") or {}).items() if k in GROUP_ATTRS}
+        want = group_attrs(cfg, g)
+        check(group and have == want, f"group {g} has {want or f'no {GROUP_FLAG}/{GROUP_DOMAIN}'}"
+              + ("" if have == want else f" (found {have}; re-run apply)"))
 
     for u in cfg["users"]:
         username = u.get("username") or u["email"]
